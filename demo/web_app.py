@@ -85,11 +85,10 @@ def analyze_resume_SmartResume():
 
         print(f"Processing file: {file.filename} -> {temp_file_path}")
 
-        # Parse resume
+        # Parse resume (unified mode: one call extracts everything)
         result = analyzer.pipeline(
             cv_path=temp_file_path,
-            resume_id="web_demo",
-            extract_types=["basic_info", "work_experience", "education"]
+            resume_id="web_demo"
         )
 
         print(f"SmartResume result: {result}")
@@ -151,7 +150,10 @@ def convert_SmartResume_to_frontend_format(SmartResume_result):
     converted_data = {
         "basicInfo": {},
         "education": [],
-        "workExperience": []
+        "workExperience": [],
+        "projects": [],
+        "skills": [],
+        "certifications": []
     }
 
     try:
@@ -206,6 +208,29 @@ def convert_SmartResume_to_frontend_format(SmartResume_result):
                         "internship": work.get('internship', 0)
                     }
                     converted_data["workExperience"].append(converted_work)
+
+        # Projects - use projects field directly
+        if 'projects' in SmartResume_result and SmartResume_result['projects']:
+            for proj in SmartResume_result['projects']:
+                if proj:
+                    converted_proj = {
+                        "projectName": proj.get('projectName', ''),
+                        "role": proj.get('role', ''),
+                        "period": {
+                            "startDate": proj.get('period', {}).get('startDate', ''),
+                            "endDate": proj.get('period', {}).get('endDate', '')
+                        },
+                        "projectDescription": proj.get('projectDescription', '')
+                    }
+                    converted_data["projects"].append(converted_proj)
+
+        # Skills
+        if 'skills' in SmartResume_result and SmartResume_result['skills']:
+            converted_data['skills'] = SmartResume_result['skills']
+
+        # Certifications
+        if 'certifications' in SmartResume_result and SmartResume_result['certifications']:
+            converted_data['certifications'] = SmartResume_result['certifications']
 
         print("Successfully converted SmartResume result to frontend format")
 

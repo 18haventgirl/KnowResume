@@ -36,3 +36,5 @@ configs/config.yaml
 # Temp files
 .pytest_cache/
 .mypy_cache/
+test_resume.pdf
+*.json

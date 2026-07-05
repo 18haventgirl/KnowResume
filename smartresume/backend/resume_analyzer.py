@@ -29,77 +29,31 @@ class ResumeAnalyzer:
                  resume_id: str,
                  extract_types: List[str] = None) -> Dict[str, Any]:
         """
-        Complete resume analysis pipeline.
+        Complete resume analysis pipeline — unified extraction.
+        One LLM call extracts ALL information. The model autonomously identifies
+        sections by content, not by exact titles.
 
         Args:
             cv_path: Resume file path
             resume_id: Resume ID
-            extract_types: List of extraction types (e.g. basic_info, work_experience, education)
-
-        Returns:
-            Dict with extracted fields (basicInfo, workExperience,
-            education, etc.), rawText, and optional error_details.
-
-        Note:
-            When PDF is abnormal (is_abnormal_pdf), uses dual-text strategy:
-            basicInfo from hybrid text + OCR complement, other fields from full OCR.
+            extract_types: Ignored (kept for backwards compat). Unified mode extracts everything.
         """
-        if extract_types is None:
-            extract_types = ["basic_info"]
-
         try:
             processed_data = self.file_processor.process_file(cv_path)
 
-            is_abnormal_pdf = any(page.get("is_abnormal_pdf", False) for page in processed_data)
+            is_abnormal_pdf = any(
+                page.get("is_abnormal_pdf", False) for page in processed_data
+            )
 
             if is_abnormal_pdf:
-                # Dual-text strategy: full OCR text + hybrid text
+                # Use hybrid text for abnormal PDFs
                 (text_lines, text_content,
                  indexed_text_content) = (
-                    self.data_processor.build_text_content(
-                        processed_data, resume_id
-                    )
-                )
-                (text_lines_hybrid, text_content_hybrid,
-                 indexed_text_content_hybrid) = (
                     self.data_processor.build_text_content(
                         processed_data, resume_id,
                         use_hybrid_text=True
                     )
                 )
-
-                basic_info_output = {}
-                if "basic_info" in extract_types:
-                    basic_info_hybrid = self.llm_client.extract_info(
-                        indexed_text_content_hybrid, ["basic_info"], resume_id
-                    )
-                    basic_info_ocr = self.llm_client.extract_info(
-                        indexed_text_content, ["basic_info"], resume_id
-                    )
-                    basic_info_output = basic_info_hybrid
-                    hybrid_data = basic_info_hybrid.get("basicInfo", {})
-                    ocr_data = basic_info_ocr.get("basicInfo", {})
-
-                    if not hybrid_data and ocr_data:
-                        basic_info_output["basicInfo"] = ocr_data
-                    elif hybrid_data and ocr_data:
-                        for key, value in ocr_data.items():
-                            if (key not in hybrid_data or not hybrid_data[key]) and value:
-                                hybrid_data[key] = value
-                        basic_info_output["basicInfo"] = hybrid_data
-
-                other_types = [t for t in extract_types if t != "basic_info"]
-                other_output = {}
-                if other_types:
-                    other_output = self.llm_client.extract_info(
-                        indexed_text_content, other_types, resume_id
-                    )
-
-                structure_output = {**other_output}
-                if "basicInfo" in basic_info_output:
-                    structure_output["basicInfo"] = basic_info_output["basicInfo"]
-
-                raw_text = text_content_hybrid
             else:
                 (text_lines, text_content,
                  indexed_text_content) = (
@@ -107,15 +61,16 @@ class ResumeAnalyzer:
                         processed_data, resume_id
                     )
                 )
-                structure_output = self.llm_client.extract_info(
-                    indexed_text_content, extract_types, resume_id
-                )
-                raw_text = text_content
+
+            # Single unified LLM call — model figures out everything
+            structure_output = self.llm_client.extract_info_unified(
+                indexed_text_content, resume_id
+            )
 
             final_result = self.data_processor.post_process(
                 text_lines, structure_output, processed_data
             )
-            final_result["rawText"] = raw_text
+            final_result["rawText"] = text_content
             return final_result
 
         except Exception as e:

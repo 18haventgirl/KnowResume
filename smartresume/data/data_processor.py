@@ -81,14 +81,26 @@ class DataProcessor:
             if not page_text:
                 continue
             if isinstance(page_text, list):
-                for text_item in page_text:
-                    if isinstance(text_item, dict) and 'text' in text_item:
-                        text = self._clean_text_content(text_item['text'])
-                        text = self._remove_spaces_around_chars(text)
-                        if text:
-                            text_lines.extend(self._split_text_lines(text))
-                    elif isinstance(text_item, str) and text_item.strip():
-                        text_lines.append(text_item.strip())
+                # Check if items have bbox (word-level PDF extraction) — group by Y-coordinate
+                items_with_bbox = [
+                    it for it in page_text
+                    if isinstance(it, dict) and 'text' in it and 'bbox' in it
+                ]
+                if items_with_bbox and len(items_with_bbox) > 1:
+                    # Group words into lines by Y-coordinate proximity
+                    grouped = self._group_words_into_lines(items_with_bbox)
+                    for line_text in grouped:
+                        if line_text:
+                            text_lines.append(line_text)
+                else:
+                    for text_item in page_text:
+                        if isinstance(text_item, dict) and 'text' in text_item:
+                            text = self._clean_text_content(text_item['text'])
+                            text = self._remove_spaces_around_chars(text)
+                            if text:
+                                text_lines.extend(self._split_text_lines(text))
+                        elif isinstance(text_item, str) and text_item.strip():
+                            text_lines.append(text_item.strip())
             elif isinstance(page_text, str) and page_text.strip():
                 text_lines.append(page_text.strip())
 
@@ -97,6 +109,70 @@ class DataProcessor:
         indexed_text_content = self._build_indexed_content(text_lines)
 
         return text_lines, text_content, indexed_text_content
+
+    def _group_words_into_lines(
+        self, items: List[Dict[str, Any]]
+    ) -> List[str]:
+        """
+        Group word-level text items (from PDF text extraction) into lines
+        based on Y-coordinate proximity. Words on the same visual line are
+        joined with spaces in X-coordinate order.
+
+        Args:
+            items: List of dicts with 'text' and 'bbox' keys
+
+        Returns:
+            List of line strings (readable paragraphs, not single words)
+        """
+        if not items:
+            return []
+
+        # Compute center-Y for each item
+        for item in items:
+            bbox = item.get('bbox', [0, 0, 0, 0])
+            item['_cy'] = (bbox[1] + bbox[3]) / 2
+            item['_cx'] = (bbox[0] + bbox[2]) / 2
+
+        # Sort by Y, then X
+        sorted_items = sorted(items, key=lambda x: (x['_cy'], x['_cx']))
+
+        # Group into lines by Y tolerance
+        lines = []
+        current_line = []
+        for item in sorted_items:
+            if not current_line:
+                current_line.append(item)
+            else:
+                avg_y = sum(it['_cy'] for it in current_line) / len(current_line)
+                heights = [
+                    (it['bbox'][3] - it['bbox'][1])
+                    for it in current_line if 'bbox' in it
+                ]
+                avg_h = sum(heights) / len(heights) if heights else 10
+                tolerance = max(avg_h * 0.6, 8)
+                if abs(item['_cy'] - avg_y) <= tolerance:
+                    current_line.append(item)
+                else:
+                    lines.append(current_line)
+                    current_line = [item]
+        if current_line:
+            lines.append(current_line)
+
+        # Join words in each line by X order, clean up
+        result = []
+        for line in lines:
+            line.sort(key=lambda x: x.get('_cx', 0))
+            texts = []
+            for item in line:
+                text = self._clean_text_content(item.get('text', ''))
+                if text:
+                    texts.append(text)
+            if texts:
+                line_str = ' '.join(texts)
+                line_str = re.sub(r'\s([|,;:，。；：])', r'\1', line_str)
+                result.append(line_str)
+
+        return result
 
     def _clean_text_content(self, text: str) -> str:
         """
@@ -113,8 +189,26 @@ class DataProcessor:
 
         text = unicodedata.normalize('NFKC', text)
 
+        # Fix PDF double-rendering: collapse duplicated characters
+        # 1. Always collapse CJK doubles (CJK has no legitimate double chars)
+        cjk = re.compile(r'([一-鿿㐀-䶿])\1')
+        prev = None
+        while text != prev:
+            prev = text
+            text = cjk.sub(r'\1', text)
+
+        # 2. Detect if text has abnormally high char duplication (>5% = PDF rendering artifact)
+        #    If so, aggressively collapse ALL 2+ consecutive identical chars.
+        dup_matches = re.findall(r'(.)\1', text)
+        dup_ratio = (len(dup_matches) * 2) / max(len(text), 1)
+        if dup_ratio > 0.05:
+            prev2 = None
+            while text != prev2:
+                prev2 = text
+                text = re.sub(r'(.)\1+', r'\1', text)
+
         text = re.sub(
-            r'[\u0020\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\u00A7]',
+            r'[    -     　§]',
             ' ', text
         )
 
@@ -232,6 +326,73 @@ class DataProcessor:
                     )
                 )
 
+            if 'projects' in raw_data:
+                processed_data['projects'] = (
+                    self._process_projects(
+                        raw_data['projects'], text_lines
+                    )
+                )
+
+            # Unified mode: split "experiences" into workExperience + projects
+            if 'experiences' in raw_data:
+                works = []
+                projs = []
+                for exp in raw_data['experiences']:
+                    exp_type = exp.get('type', '').lower()
+                    if exp_type in ('work', 'internship', '全职', '实习'):
+                        processed_exp = {
+                            'companyName': exp.get('organization', exp.get('title', '')),
+                            'position': exp.get('role', exp.get('title', '')),
+                            'employmentPeriod': self._process_time_period(exp.get('period', {})),
+                            'jobDescription': exp.get('description', ''),
+                            'internship': 1 if exp_type in ('internship', '实习') else 0,
+                        }
+                        works.append(processed_exp)
+                    elif exp_type in ('project', 'research', '项目', '研究'):
+                        processed_proj = {
+                            'projectName': exp.get('title', ''),
+                            'role': exp.get('role', ''),
+                            'period': self._process_time_period(exp.get('period', {})),
+                            'projectDescription': exp.get('description', ''),
+                            'organization': exp.get('organization', ''),
+                            'skills': exp.get('skills', []),
+                        }
+                        projs.append(processed_proj)
+                    else:
+                        if exp.get('organization'):
+                            works.append({
+                                'companyName': exp.get('organization', exp.get('title', '')),
+                                'position': exp.get('role', exp.get('title', '')),
+                                'employmentPeriod': self._process_time_period(exp.get('period', {})),
+                                'jobDescription': exp.get('description', ''),
+                                'internship': 0,
+                            })
+                        else:
+                            projs.append({
+                                'projectName': exp.get('title', ''),
+                                'role': exp.get('role', ''),
+                                'period': self._process_time_period(exp.get('period', {})),
+                                'projectDescription': exp.get('description', ''),
+                                'organization': exp.get('organization', ''),
+                                'skills': exp.get('skills', []),
+                            })
+
+                if works:
+                    processed_data['workExperience'] = works
+                if projs:
+                    processed_data['projects'] = projs
+
+            if 'summary' in raw_data and raw_data['summary']:
+                if 'basicInfo' not in processed_data:
+                    processed_data['basicInfo'] = {}
+                processed_data['basicInfo']['summary'] = raw_data['summary']
+
+            if 'skills' in raw_data:
+                processed_data['skills'] = raw_data['skills']
+
+            if 'certifications' in raw_data:
+                processed_data['certifications'] = raw_data['certifications']
+
             self._validate_fields_in_text(processed_data, text_lines)
 
             return processed_data
@@ -347,6 +508,39 @@ class DataProcessor:
                     )
 
             processed_list.append(processed_edu)
+
+        return processed_list
+
+    def _process_projects(
+        self, projects: List[Dict[str, Any]],
+        text_lines: List[str],
+    ) -> List[Dict[str, Any]]:
+        """Process project experience"""
+        processed_list = []
+
+        for proj in projects:
+            processed = {}
+
+            if 'projectName' in proj:
+                processed['projectName'] = self._clean_text(proj['projectName'])
+
+            if 'role' in proj:
+                processed['role'] = self._clean_text(proj['role'])
+
+            if 'period' in proj:
+                processed['period'] = self._process_time_period(proj['period'])
+
+            if 'projectDescription' in proj:
+                processed['projectDescription'] = self._clean_description(proj['projectDescription'])
+
+            for key, value in proj.items():
+                if key not in processed:
+                    processed[key] = (
+                        self._clean_text(value)
+                        if isinstance(value, str) else value
+                    )
+
+            processed_list.append(processed)
 
         return processed_list
 

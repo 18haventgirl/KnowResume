@@ -616,7 +616,33 @@
                                 <div id="work-experience" class="space-y-3 md:space-y-4"></div>
                             </div>
 
-                            
+                            <div class="info-card">
+                                <div class="flex items-center mb-4 md:mb-6">
+                                    <div class="w-6 h-6 md:w-8 md:h-8 bg-gradient-to-r from-orange-500 to-red-600 rounded-lg flex items-center justify-center mr-2 md:mr-3">
+                                        <svg class="w-3 h-3 md:w-4 md:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                                    </div>
+                                    <h3 class="text-lg md:text-xl font-semibold text-gray-800">项目/研究经历</h3>
+                                </div>
+                                <div id="projects-section" class="space-y-3 md:space-y-4"></div>
+                            </div>
+                            <div class="info-card">
+                                <div class="flex items-center mb-4 md:mb-6">
+                                    <div class="w-6 h-6 md:w-8 md:h-8 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center mr-2 md:mr-3">
+                                        <svg class="w-3 h-3 md:w-4 md:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+                                    </div>
+                                    <h3 class="text-lg md:text-xl font-semibold text-gray-800">技能专长</h3>
+                                </div>
+                                <div id="skills-section"></div>
+                            </div>
+                            <div class="info-card">
+                                <div class="flex items-center mb-4 md:mb-6">
+                                    <div class="w-6 h-6 md:w-8 md:h-8 bg-gradient-to-r from-amber-500 to-yellow-600 rounded-lg flex items-center justify-center mr-2 md:mr-3">
+                                        <svg class="w-3 h-3 md:w-4 md:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"></path></svg>
+                                    </div>
+                                    <h3 class="text-lg md:text-xl font-semibold text-gray-800">证书资质</h3>
+                                </div>
+                                <div id="certifications-section"></div>
+                            </div>
 
 
                         </div>
@@ -665,6 +691,9 @@
             },
             educationExperience: document.getElementById('education-experience'),
             workExperience: document.getElementById('work-experience'),
+            projectsSection: document.getElementById('projects-section'),
+            skillsSection: document.getElementById('skills-section'),
+            certificationsSection: document.getElementById('certifications-section'),
 
             analysisTime: document.getElementById('analysis-time'),
         };
@@ -822,6 +851,9 @@
             Object.values(dom.basicInfo).forEach(input => input.value = '');
             dom.educationExperience.innerHTML = '';
             dom.workExperience.innerHTML = '';
+            dom.projectsSection.innerHTML = '';
+            dom.skillsSection.innerHTML = '';
+            dom.certificationsSection.innerHTML = '';
 
             dom.errorDisplay.classList.add('hidden');
             dom.infoPlaceholder.classList.remove('hidden');
@@ -1075,6 +1107,42 @@
 
             renderExperienceSection(dom.educationExperience, data.education, createEducationCard);
             renderExperienceSection(dom.workExperience, data.workExperience, createWorkCard);
+            renderExperienceSection(dom.projectsSection, data.projects, createProjectCard);
+
+            // Skills as tags
+            if (dom.skillsSection) {
+                dom.skillsSection.innerHTML = '';
+                const skills = data.skills || [];
+                if (skills.length > 0) {
+                    const tagsDiv = document.createElement('div');
+                    tagsDiv.className = 'flex flex-wrap gap-2';
+                    skills.forEach(function(s) {
+                        var tag = document.createElement('span');
+                        tag.className = 'px-3 py-1 bg-cyan-100 text-cyan-700 rounded-full text-xs md:text-sm font-medium';
+                        tag.textContent = s;
+                        tagsDiv.appendChild(tag);
+                    });
+                    dom.skillsSection.appendChild(tagsDiv);
+                } else {
+                    dom.skillsSection.innerHTML = '<p class="text-sm text-gray-500 text-center py-4">暂无技能信息</p>';
+                }
+            }
+
+            // Certifications
+            if (dom.certificationsSection) {
+                dom.certificationsSection.innerHTML = '';
+                var certs = data.certifications || [];
+                if (certs.length > 0) {
+                    certs.forEach(function(c) {
+                        var div = document.createElement('div');
+                        div.className = 'bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 p-3 rounded-lg mb-2';
+                        div.innerHTML = '<div class="flex justify-between items-start"><div><p class="text-sm font-medium text-gray-800">'+escapeHtml(c.name||'')+'</p><p class="text-xs text-gray-600 mt-1">'+escapeHtml(c.description||'')+'</p></div><span class="text-xs text-amber-600 bg-amber-100 px-2 py-1 rounded-full whitespace-nowrap ml-2">'+escapeHtml(c.date||'')+'</span></div>';
+                        dom.certificationsSection.appendChild(div);
+                    });
+                } else {
+                    dom.certificationsSection.innerHTML = '<p class="text-sm text-gray-500 text-center py-4">暂无证书信息</p>';
+                }
+            }
             
 
         }

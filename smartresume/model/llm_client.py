@@ -274,13 +274,6 @@ class LLMClient:
                 'model': channel_config.name,
                 'messages': messages,
                 'max_tokens': channel_config.max_tokens,
-                'temperature': channel_config.temperature,
-                'top_p': channel_config.top_p,
-                'seed': channel_config.seed,
-                "extra_body": {
-                    "chat_template_kwargs": {"enable_thinking": False},
-                    "repetition_penalty": 1.01
-                },
             }
 
             if config.processing.use_force_json:
@@ -288,13 +281,15 @@ class LLMClient:
 
             max_retries = 2
             for attempt in range(max_retries + 1):
-                if attempt > 0:
-                    params['temperature'] = 1.0
-                    params['seed'] = random.randint(0, 1000000)
-
                 try:
+                    params['stream'] = True
                     completion = client.chat.completions.create(**params)
-                    content = completion.choices[0].message.content
+                    # Collect streaming response chunks
+                    chunks = []
+                    for chunk in completion:
+                        if chunk.choices and chunk.choices[0].delta.content:
+                            chunks.append(chunk.choices[0].delta.content)
+                    content = ''.join(chunks)
                     content = content.replace('\\"', '"')
 
                     json_start = content.find("{")
@@ -520,3 +515,85 @@ class LLMClient:
             resume_id=resume_id,
             use_backup_channel=use_backup_channel
         )
+
+    def extract_info_unified(
+        self, text_content: str, resume_id: str
+    ) -> Dict[str, Any]:
+        """
+        Unified extraction: one API call extracts ALL information.
+        The model autonomously identifies sections by content, not by exact titles.
+
+        Args:
+            text_content: The input text content (indexed).
+            resume_id: Resume identifier.
+
+        Returns:
+            A dictionary with all extracted fields.
+        """
+        if self.use_direct_models:
+            if self.direct_tokenizer and (self.direct_model or self._vllm_llm):
+                return self.extract_info_direct(
+                    text_content=text_content,
+                    extract_types=["unified"],
+                    resume_id=resume_id,
+                )
+            raise RuntimeError(
+                "use_direct_models is True but direct model failed to load."
+            )
+
+        # Remote API call
+        client = self.default_client
+        channel_config = config.model
+
+        messages = [
+            {"role": "system", "content": self.prompts.get("unified", "")},
+            {"role": "user", "content": [{"type": "text", "text": text_content}]}
+        ]
+
+        params = {
+            'model': channel_config.name,
+            'messages': messages,
+            'max_tokens': channel_config.max_tokens,
+        }
+
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                params['stream'] = True
+                completion = client.chat.completions.create(**params)
+                chunks = []
+                for chunk in completion:
+                    if chunk.choices and chunk.choices[0].delta.content:
+                        chunks.append(chunk.choices[0].delta.content)
+                content = ''.join(chunks)
+                content = content.replace('\\"', '"')
+
+                json_start = content.find("{")
+                json_end = content.rfind("}") + 1
+
+                if json_start != -1 and json_end > json_start:
+                    content = content[json_start:json_end]
+                    try:
+                        return json.loads(content)
+                    except json.JSONDecodeError:
+                        content = content.replace("'", '"')
+                        content = content.replace('True', 'true')
+                        content = content.replace('False', 'false')
+                        content = content.replace('None', 'null')
+                        return json_repair.loads(content)
+                else:
+                    raise ValueError("No valid JSON content found")
+
+            except Exception as e:
+                if attempt >= max_retries:
+                    os.makedirs("contents", exist_ok=True)
+                    with open(
+                        f"contents/{resume_id}_unified_error.json",
+                        "w", encoding='utf-8',
+                    ) as f:
+                        json.dump({
+                            "error_type": type(e).__name__,
+                            "error_message": str(e),
+                        }, f, ensure_ascii=False, indent=2)
+                    return {}
+
