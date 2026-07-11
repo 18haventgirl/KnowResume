@@ -595,5 +595,8 @@ class LLMClient:
                             "error_type": type(e).__name__,
                             "error_message": str(e),
                         }, f, ensure_ascii=False, indent=2)
-                    return {}
+                    raise RuntimeError(
+                        f"Unified extraction failed after {max_retries + 1} "
+                        f"attempts: {type(e).__name__}: {e}"
+                    ) from e
 
