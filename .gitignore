@@ -38,3 +38,12 @@ configs/config.yaml
 .mypy_cache/
 test_resume.pdf
 *.json
+
+# Eval / runtime artifacts
+contents/
+eval_report.json
+eval_result.json
+web_out.log
+web_err.log
+run_web.bat
+*.bat

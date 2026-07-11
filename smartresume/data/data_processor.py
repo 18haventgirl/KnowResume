@@ -267,6 +267,16 @@ class DataProcessor:
         Returns:
             Dict: Final processed result
         """
+        if not structure_output or not isinstance(structure_output, dict) \
+                or not any(k in structure_output
+                           for k in ("basicInfo", "education", "experiences",
+                                     "workExperience", "projects", "skills",
+                                     "certifications")):
+            raise ValueError(
+                "LLM extraction returned empty result — no resume fields. "
+                "Check contents/<resume_id>_unified_error.json for details."
+            )
+
         try:
             processed_result = self.process_resume_data(structure_output, text_lines)
 
@@ -281,7 +291,9 @@ class DataProcessor:
 
             return processed_result
 
-        except Exception:
+        except Exception as e:
+            import loguru
+            loguru.logger.warning(f"post_process failed, returning raw output: {e}")
             return structure_output
 
     def process_resume_data(
@@ -397,7 +409,9 @@ class DataProcessor:
 
             return processed_data
 
-        except Exception:
+        except Exception as e:
+            import loguru
+            loguru.logger.warning(f"process_resume_data failed, returning raw data: {e}")
             return raw_data
 
     def _process_basic_info(self, basic_info: Dict[str, Any]) -> Dict[str, Any]:
